@@ -1,0 +1,87 @@
+version: '3.9'
+services:
+  jaeger:
+    container_name: jaeger-container
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: 9411
+      COLLECTOR_OTLP_ENABLED: true
+    expose:
+      - "16686"
+      - "14268"
+    ports:
+      - 5775:5775/udp
+      - 6831:6831/udp
+      - 6832:6832/udp
+      - 5778:5778
+      - 16686:16686
+      - 14268:14268
+      - 14250:14250
+      - 9411:9411
+      - 4317
+      - 4318
+      # - 4317:4317
+      # - 4318:4318
+    restart: always
+    networks:
+        - monitoring_network
+  otel-collector:
+    container_name: otel-collector-container
+    image: otel/opentelemetry-collector-contrib:latest
+    expose:
+      - "4317"
+      - "4318"
+    ports:
+      - "1888:1888"   # pprof extension
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+      - "13133:13133" # health_check extension
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318" # OTLP http receiver
+      - "55679:55679" # zpages extension
+    volumes:
+      - "${PWD}/hack/observability:/observability"
+      - ./hackservability/secrets/otel-collector.json:/etc/otel/key.json
+    command: ["--config=/observability/otel-config.yaml", "${OTELCOL_ARGS}"]
+    networks:
+      - monitoring_network
+    depends_on:
+      - jaeger
+  grafana:
+    container_name: grafana-container
+    image: grafana/grafana:7.1.5
+    ports:
+      - 3000:3000
+    volumes:
+      - ./hack/observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./hack/observability/grafana/dashboards:/etc/grafana/demo-dashboards
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring_network
+  prometheus:
+    container_name: prometheus-container 
+    image: prom/prometheus:latest
+    volumes:
+      - ./hack/observability/prometheus.yaml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+    - monitoring_network
+  asynqmon:
+    container_name: asyncmon-container
+    image: hibiken/asynqmon
+    command:
+      - "--enable-metrics-exporter"
+      - "--prometheus-addr=http://prometheus:9090"
+    ports:
+      - 8011:8080
+    networks:
+      - monitoring_network
+volumes:
+  grafana_data:
+  prometheus_data:
+networks:
+  monitoring_network:
+    driver: bridge
+  
